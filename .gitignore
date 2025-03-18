@@ -1,0 +1,4 @@
+/setup.cfg
+/tests
+/requirements.test.txt
+/.pre-commit-config.yaml
