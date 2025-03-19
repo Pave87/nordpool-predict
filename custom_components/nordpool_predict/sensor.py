@@ -211,20 +211,27 @@ class NordpoolPredictSensor(SensorEntity):
                                 base_value = round(pair[1], 4)
                                 
                                 if self._additional_costs_script:
-                                    # Include detailed breakdown when additional costs are configured
-                                    additional_cost = self._calculate_additional_costs(timestamp)
-                                    total_value = round(base_value + additional_cost, 4)
-                                    formatted_predictions.append({
+                                    try:
+                                        # Include detailed breakdown when additional costs are configured
+                                        additional_cost = self._calculate_additional_costs(timestamp)
+                                        total_value = round(base_value + additional_cost, 3)
+                                        formatted_predictions.append({
                                         "timestamp": timestamp,  # Now in format: '2025-03-17 13:00:00'
                                         "value": total_value,
-                                        "base_price": base_value,
-                                        "additional_cost": additional_cost
+                                        "base_price": round(base_value, 3),
+                                        "additional_cost": round(additional_cost, 3)
                                     })
+                                    except Exception as err:
+                                        _LOGGER.error("Error calculating additional costs: %s", err)
+                                        formatted_predictions.append({
+                                            "timestamp": timestamp,
+                                            "value": round(base_value, 3)
+                                        })
                                 else:
                                     # Simplified version without cost breakdown
                                     formatted_predictions.append({
                                         "timestamp": timestamp,
-                                        "value": base_value
+                                        "value": round(base_value, 3)
                                     })
                             
                             self._predictions = formatted_predictions
