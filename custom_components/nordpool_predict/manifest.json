@@ -2,7 +2,7 @@
   "codeowners": ["Pave87"],
   "config_flow": true,
   "dependencies": [],
-  "documentation": "https://github.com/user/my_component/",
+  "documentation": "https://github.com/Pave87/nordpool-predict",
   "domain": "nordpool_predict",
   "iot_class": "cloud_polling",
   "name": "Nordpool Prediction",
