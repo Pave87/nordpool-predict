@@ -19,7 +19,7 @@ from .const import DOMAIN, PREDICTION_URL, CONF_ADDITIONAL_COSTS, CONF_ACTUAL_PR
 _LOGGER = logging.getLogger(__name__)
 
 # Define the scan interval as a timedelta
-SCAN_INTERVAL = 600
+SCAN_INTERVAL = timedelta(seconds=600)
 
 async def async_setup_entry(
     hass: HomeAssistant,
