@@ -14,12 +14,12 @@ from homeassistant.util import dt as dt_util
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_NAME
 
-from .const import DOMAIN, PREDICTION_URL, CONF_ADDITIONAL_COSTS, CONF_ACTUAL_PRICE_SENSOR, CONF_UPDATE_INTERVAL, SCAN_INTERVAL
+from .const import DOMAIN, PREDICTION_URL, CONF_ADDITIONAL_COSTS, CONF_ACTUAL_PRICE_SENSOR, CONF_UPDATE_INTERVAL
 
 _LOGGER = logging.getLogger(__name__)
 
 # Define the scan interval as a timedelta
-SCAN_INTERVAL = timedelta(seconds=SCAN_INTERVAL)
+SCAN_INTERVAL = 600
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -28,9 +28,14 @@ async def async_setup_entry(
 ) -> None:
     """Set up the Nordpool Predict sensor from config entry."""
     config = config_entry.data
-    update_interval = timedelta(seconds=config.get(CONF_UPDATE_INTERVAL, SCAN_INTERVAL.total_seconds()))
+    _LOGGER.debug("Setting up Nordpool Predict sensor with config: %s", config)
+    update_interval = timedelta(seconds=config.get(CONF_UPDATE_INTERVAL, SCAN_INTERVAL))
+    _LOGGER.debug("CONF_UPDATE_INTERVAL: %s", config.get(CONF_UPDATE_INTERVAL))
+    _LOGGER.debug("Update interval: %s seconds", update_interval.total_seconds())
     additional_costs_script = config.get(CONF_ADDITIONAL_COSTS)
+    _LOGGER.debug("Additional costs script: %s", additional_costs_script)
     actual_price_sensor = config.get(CONF_ACTUAL_PRICE_SENSOR)
+    _LOGGER.debug("Actual price sensor: %s", actual_price_sensor)
     
     async_add_entities(
         [
@@ -70,6 +75,7 @@ class NordpoolPredictSensor(SensorEntity):
     @property
     def scan_interval(self) -> timedelta:
         """Return the scanning interval."""
+        _LOGGER.debug("Scan interval: %s seconds", self._update_interval.total_seconds())
         return self._update_interval
 
     def _calculate_additional_costs(self, timestamp: str) -> float:
