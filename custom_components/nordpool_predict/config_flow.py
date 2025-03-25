@@ -66,17 +66,17 @@ class NordpoolPredictOptionsFlow(config_entries.OptionsFlow):
             data_schema=vol.Schema({
                 vol.Optional(
                     CONF_UPDATE_INTERVAL,
-                    default=self.config_entry.options.get(
+                    default=self.config_entry.data.get(
                         CONF_UPDATE_INTERVAL, 900
                     ),
                 ): int,
                 vol.Optional(
                     CONF_ADDITIONAL_COSTS,
-                    default=self.config_entry.options.get(CONF_ADDITIONAL_COSTS, ""),
+                    default=self.config_entry.data.get(CONF_ADDITIONAL_COSTS, ""),
                 ): str,
                 vol.Optional(
                     CONF_ACTUAL_PRICE_SENSOR,
-                    default=self.config_entry.options.get(CONF_ACTUAL_PRICE_SENSOR, ""),
+                    default=self.config_entry.data.get(CONF_ACTUAL_PRICE_SENSOR, ""),
                 ): str,
             })
         ) 
