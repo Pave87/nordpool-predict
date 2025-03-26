@@ -3,16 +3,21 @@ from datetime import datetime, timedelta
 import logging
 from typing import Any, Dict, Optional
 import aiohttp
+import asyncio
 
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.const import CURRENCY_CENT
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.helpers import template
 from homeassistant.util import dt as dt_util
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_NAME
+from homeassistant.helpers.update_coordinator import (
+    CoordinatorEntity,
+    DataUpdateCoordinator,
+)
 
 from .const import DOMAIN, PREDICTION_URL, CONF_ADDITIONAL_COSTS, CONF_ACTUAL_PRICE_SENSOR, CONF_UPDATE_INTERVAL
 
@@ -28,39 +33,61 @@ async def async_setup_entry(
 ) -> None:
     """Set up the Nordpool Predict sensor from config entry."""
     config = config_entry.data
-    _LOGGER.debug("Setting up Nordpool Predict sensor with config: %s", config)
-    update_interval = timedelta(seconds=config.get(CONF_UPDATE_INTERVAL, SCAN_INTERVAL))
-    _LOGGER.debug("CONF_UPDATE_INTERVAL: %s", config.get(CONF_UPDATE_INTERVAL))
-    _LOGGER.debug("Update interval: %s seconds", update_interval.total_seconds())
+    update_interval = timedelta(seconds=config.get(CONF_UPDATE_INTERVAL, SCAN_INTERVAL.total_seconds()))
     additional_costs_script = config.get(CONF_ADDITIONAL_COSTS)
-    _LOGGER.debug("Additional costs script: %s", additional_costs_script)
     actual_price_sensor = config.get(CONF_ACTUAL_PRICE_SENSOR)
-    _LOGGER.debug("Actual price sensor: %s", actual_price_sensor)
-    
-    async_add_entities(
-        [
-            NordpoolPredictSensor(
-                hass,
-                additional_costs_script,
-                actual_price_sensor,
-                update_interval
-            )
-        ],
-        True,
+
+    async def async_update_data():
+        """Fetch data from API."""
+        _LOGGER.debug(
+            "Starting coordinator update at %s", 
+            dt_util.now().strftime("%Y-%m-%d %H:%M:%S")
+        )
+        async with aiohttp.ClientSession() as session:
+            async with session.get(PREDICTION_URL) as response:
+                if response.status == 200:
+                    data = await response.json(content_type=None)
+                    _LOGGER.debug("Successfully fetched data with %d predictions", len(data))
+                    return data
+                _LOGGER.debug("Failed to fetch data, status code: %d", response.status)
+                return None
+
+    coordinator = DataUpdateCoordinator(
+        hass,
+        _LOGGER,
+        name="nordpool_predict",
+        update_method=async_update_data,
+        update_interval=update_interval,
     )
 
-class NordpoolPredictSensor(SensorEntity):
+    entity = NordpoolPredictSensor(
+        coordinator,
+        hass,
+        additional_costs_script,
+        actual_price_sensor,
+    )
+    
+    async_add_entities([entity], False)  # Changed to False to prevent immediate update
+
+    # Schedule the first update with a delay
+    async def delayed_first_update():
+        await asyncio.sleep(60)  # Wait for 1 minute
+        await coordinator.async_request_refresh()
+
+    hass.async_create_task(delayed_first_update())
+
+class NordpoolPredictSensor(CoordinatorEntity, SensorEntity):
     """Implementation of the Nordpool Predict sensor."""
 
     def __init__(
         self,
+        coordinator: DataUpdateCoordinator,
         hass: HomeAssistant,
         additional_costs_script: Optional[str] = None,
         actual_price_sensor: Optional[str] = None,
-        update_interval: timedelta = SCAN_INTERVAL,
     ) -> None:
         """Initialize the sensor."""
-        super().__init__()
+        super().__init__(coordinator)
         self._hass = hass
         self._predictions: list = []
         self._additional_costs_script = additional_costs_script
@@ -69,14 +96,86 @@ class NordpoolPredictSensor(SensorEntity):
         self._attr_name = "Nordpool Price Prediction"
         self._attr_native_unit_of_measurement = "%"
         self._attr_unique_id = "nordpool_predict_next_price"
-        self._update_interval = update_interval
-        _LOGGER.info("Nordpool Predict sensor initialized with update interval: %s seconds", update_interval.total_seconds())
 
-    @property
-    def scan_interval(self) -> timedelta:
-        """Return the scanning interval."""
-        _LOGGER.debug("Scan interval: %s seconds", self._update_interval.total_seconds())
-        return self._update_interval
+        # Schedule initial update after 1 minute
+        async def delayed_first_update():
+            await asyncio.sleep(60)  # Wait for 1 minute
+            await coordinator.async_request_refresh()
+
+        hass.async_create_task(delayed_first_update())
+
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Handle updated data from the coordinator."""
+
+        if self.coordinator.data:
+            _LOGGER.debug(
+                "Processing new data with %d entries", 
+                len(self.coordinator.data)
+            )
+            # Schedule the async processing without awaiting
+            self.hass.async_create_task(
+                self._async_handle_update(self.coordinator.data)
+            )
+        else:
+            _LOGGER.error("No data received from coordinator")
+            self.async_write_ha_state()
+
+    async def _async_handle_update(self, data: list) -> None:
+        """Process update asynchronously."""
+        try:
+            await self._process_data(data)
+        except Exception as err:
+            _LOGGER.error("Error processing data: %s", err)
+        finally:
+            self.async_write_ha_state()
+
+    async def _process_data(self, raw_data):
+        """Process the raw data and update predictions."""
+        _LOGGER.debug("Starting to process raw data: %s", raw_data)
+        
+        if not raw_data:
+            _LOGGER.warning("Received empty raw_data")
+            return
+            
+        formatted_predictions = []
+        for pair in raw_data:
+            # Convert milliseconds timestamp to local timezone first
+            local_dt = datetime.fromtimestamp(
+                pair[0] / 1000,  # Convert milliseconds to seconds
+                tz=dt_util.get_time_zone(self._hass.config.time_zone)
+            )
+            # Convert to UTC for storage
+            utc_dt = local_dt.astimezone(dt_util.UTC)
+            timestamp = utc_dt.strftime("%Y-%m-%d %H:%M:%S")
+            
+            base_value = round(pair[1], 4)
+            
+            if self._additional_costs_script:
+                try:
+                    # Include detailed breakdown when additional costs are configured
+                    additional_cost = self._calculate_additional_costs(timestamp)
+                    total_value = round(base_value + additional_cost, 3)
+                    prediction = {
+                        "timestamp": timestamp,
+                        "value": total_value,
+                        "base_price": round(base_value, 3),
+                        "additional_cost": round(additional_cost, 3)
+                    }
+                    formatted_predictions.append(prediction)
+                except Exception as err:
+                    _LOGGER.error("Error calculating additional costs: %s", err)
+            else:
+                prediction = {
+                    "timestamp": timestamp,
+                    "value": round(base_value, 3)
+                }
+                formatted_predictions.append(prediction)
+        
+        self._predictions = formatted_predictions
+        
+        # Calculate accuracy after updating predictions
+        accuracy = self._calculate_prediction_accuracy()
 
     def _calculate_additional_costs(self, timestamp: str) -> float:
         """Calculate additional costs for a given timestamp."""
@@ -187,79 +286,5 @@ class NordpoolPredictSensor(SensorEntity):
         return {
             "Prediction": self._predictions  # Return the full prediction array
         }
-
-    async def async_update(self) -> None:
-        """Fetch new state data for the sensor."""
-        _LOGGER.info("Starting update for Nordpool Predict sensor")
-        try:
-            async with aiohttp.ClientSession() as session:
-                _LOGGER.info("Fetching data from: %s", PREDICTION_URL)
-                async with session.get(PREDICTION_URL) as response:
-                    if response.status == 200:
-                        # Read response as text first
-                        text_data = await response.text()
-                        
-                        try:
-                            raw_data = await response.json(content_type=None)
-                            
-                            # Convert raw data to formatted predictions
-                            formatted_predictions = []
-                            for pair in raw_data:
-                                # Convert milliseconds timestamp to local timezone first
-                                local_dt = datetime.fromtimestamp(
-                                    pair[0] / 1000,  # Convert milliseconds to seconds
-                                    tz=dt_util.get_time_zone(self._hass.config.time_zone)
-                                )
-                                # Convert to UTC for storage
-                                utc_dt = local_dt.astimezone(dt_util.UTC)
-                                timestamp = utc_dt.strftime("%Y-%m-%d %H:%M:%S")
-                                
-                                base_value = round(pair[1], 4)
-                                
-                                if self._additional_costs_script:
-                                    try:
-                                        # Include detailed breakdown when additional costs are configured
-                                        additional_cost = self._calculate_additional_costs(timestamp)
-                                        total_value = round(base_value + additional_cost, 3)
-                                        formatted_predictions.append({
-                                        "timestamp": timestamp,  # Now in format: '2025-03-17 13:00:00'
-                                        "value": total_value,
-                                        "base_price": round(base_value, 3),
-                                        "additional_cost": round(additional_cost, 3)
-                                    })
-                                    except Exception as err:
-                                        _LOGGER.error("Error calculating additional costs: %s", err)
-                                        formatted_predictions.append({
-                                            "timestamp": timestamp,
-                                            "value": round(base_value, 3)
-                                        })
-                                else:
-                                    # Simplified version without cost breakdown
-                                    formatted_predictions.append({
-                                        "timestamp": timestamp,
-                                        "value": round(base_value, 3)
-                                    })
-                            
-                            self._predictions = formatted_predictions
-
-                        except ValueError as err:
-                            _LOGGER.error("Failed to parse JSON: %s. Raw data: %s", err, text_data[:200])
-
-                        # Calculate accuracy after updating predictions
-                        accuracy = self._calculate_prediction_accuracy()
-                        
-                        # Sanity check for prediction accuracy
-                        if accuracy is not None and 0 <= accuracy <= 1:
-                            self._prediction_accuracy = accuracy
-                        else:
-                            _LOGGER.warning("Invalid accuracy value: %s. It must be between 0 and 1.", accuracy)
-                            self._prediction_accuracy = None
-                        
-                    else:
-                        _LOGGER.error("Failed to fetch prediction data: HTTP %s", response.status)
-        except aiohttp.ClientError as err:
-            _LOGGER.error("Network error while fetching predictions: %s", err)
-        except Exception as err:
-            _LOGGER.exception("Unexpected error updating Nordpool prediction: %s", err)
 
 
