@@ -59,6 +59,16 @@ class NordpoolPredictOptionsFlow(config_entries.OptionsFlow):
     ) -> FlowResult:
         """Manage the options."""
         if user_input is not None:
+            # Update both the options and the entry data
+            self.hass.config_entries.async_update_entry(
+                self.config_entry,
+                data={
+                    **self.config_entry.data,
+                    CONF_UPDATE_INTERVAL: user_input[CONF_UPDATE_INTERVAL],
+                    CONF_ADDITIONAL_COSTS: user_input[CONF_ADDITIONAL_COSTS],
+                    CONF_ACTUAL_PRICE_SENSOR: user_input[CONF_ACTUAL_PRICE_SENSOR],
+                }
+            )
             return self.async_create_entry(title="", data=user_input)
 
         return self.async_show_form(
@@ -79,4 +89,4 @@ class NordpoolPredictOptionsFlow(config_entries.OptionsFlow):
                     default=self.config_entry.data.get(CONF_ACTUAL_PRICE_SENSOR, ""),
                 ): str,
             })
-        ) 
+        )
