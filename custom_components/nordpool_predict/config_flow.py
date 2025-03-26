@@ -9,7 +9,7 @@ from homeassistant.core import callback
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.const import CONF_NAME
 
-from .const import DOMAIN, CONF_UPDATE_INTERVAL, CONF_ADDITIONAL_COSTS, CONF_ACTUAL_PRICE_SENSOR, SCAN_INTERVAL
+from .const import DOMAIN, CONF_UPDATE_INTERVAL, CONF_ADDITIONAL_COSTS, CONF_ACTUAL_PRICE_SENSOR
 
 class NordpoolPredictConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for Nordpool Predict."""
@@ -25,13 +25,18 @@ class NordpoolPredictConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 step_id="user",
                 data_schema=vol.Schema({
                     vol.Optional(CONF_NAME, default="Nordpool Predict"): str,
-                    vol.Optional(CONF_UPDATE_INTERVAL, default=SCAN_INTERVAL): int,
+                    vol.Optional(CONF_UPDATE_INTERVAL, default=21600): int,
                     vol.Optional(CONF_ADDITIONAL_COSTS): str,
                     vol.Optional(CONF_ACTUAL_PRICE_SENSOR): str,
                 })
             )
 
-        return self.async_create_entry(title=user_input[CONF_NAME], data=user_input)
+        # Ensure all necessary fields are included in the entry
+        return self.async_create_entry(title=user_input[CONF_NAME], data={
+            CONF_UPDATE_INTERVAL: user_input[CONF_UPDATE_INTERVAL],
+            CONF_ADDITIONAL_COSTS: user_input.get(CONF_ADDITIONAL_COSTS, ""),
+            CONF_ACTUAL_PRICE_SENSOR: user_input.get(CONF_ACTUAL_PRICE_SENSOR, ""),
+        })
 
     @staticmethod
     @callback
@@ -54,6 +59,16 @@ class NordpoolPredictOptionsFlow(config_entries.OptionsFlow):
     ) -> FlowResult:
         """Manage the options."""
         if user_input is not None:
+            # Update both the options and the entry data
+            self.hass.config_entries.async_update_entry(
+                self.config_entry,
+                data={
+                    **self.config_entry.data,
+                    CONF_UPDATE_INTERVAL: user_input[CONF_UPDATE_INTERVAL],
+                    CONF_ADDITIONAL_COSTS: user_input[CONF_ADDITIONAL_COSTS],
+                    CONF_ACTUAL_PRICE_SENSOR: user_input[CONF_ACTUAL_PRICE_SENSOR],
+                }
+            )
             return self.async_create_entry(title="", data=user_input)
 
         return self.async_show_form(
@@ -61,17 +76,17 @@ class NordpoolPredictOptionsFlow(config_entries.OptionsFlow):
             data_schema=vol.Schema({
                 vol.Optional(
                     CONF_UPDATE_INTERVAL,
-                    default=self.config_entry.options.get(
-                        CONF_UPDATE_INTERVAL, SCAN_INTERVAL
+                    default=self.config_entry.data.get(
+                        CONF_UPDATE_INTERVAL, 21600
                     ),
                 ): int,
                 vol.Optional(
                     CONF_ADDITIONAL_COSTS,
-                    default=self.config_entry.options.get(CONF_ADDITIONAL_COSTS, ""),
+                    default=self.config_entry.data.get(CONF_ADDITIONAL_COSTS, ""),
                 ): str,
                 vol.Optional(
                     CONF_ACTUAL_PRICE_SENSOR,
-                    default=self.config_entry.options.get(CONF_ACTUAL_PRICE_SENSOR, ""),
+                    default=self.config_entry.data.get(CONF_ACTUAL_PRICE_SENSOR, ""),
                 ): str,
             })
-        ) 
+        )
