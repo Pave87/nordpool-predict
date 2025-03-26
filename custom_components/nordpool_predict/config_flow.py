@@ -25,7 +25,7 @@ class NordpoolPredictConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 step_id="user",
                 data_schema=vol.Schema({
                     vol.Optional(CONF_NAME, default="Nordpool Predict"): str,
-                    vol.Optional(CONF_UPDATE_INTERVAL, default=900): int,
+                    vol.Optional(CONF_UPDATE_INTERVAL, default=21600): int,
                     vol.Optional(CONF_ADDITIONAL_COSTS): str,
                     vol.Optional(CONF_ACTUAL_PRICE_SENSOR): str,
                 })
@@ -77,7 +77,7 @@ class NordpoolPredictOptionsFlow(config_entries.OptionsFlow):
                 vol.Optional(
                     CONF_UPDATE_INTERVAL,
                     default=self.config_entry.data.get(
-                        CONF_UPDATE_INTERVAL, 900
+                        CONF_UPDATE_INTERVAL, 21600
                     ),
                 ): int,
                 vol.Optional(
