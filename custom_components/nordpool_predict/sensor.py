@@ -175,7 +175,7 @@ class NordpoolPredictSensor(CoordinatorEntity, SensorEntity):
         self._predictions = formatted_predictions
         
         # Calculate accuracy after updating predictions
-        accuracy = self._calculate_prediction_accuracy()
+        self._prediction_accuracy = self._calculate_prediction_accuracy()
 
     def _calculate_additional_costs(self, timestamp: str) -> float:
         """Calculate additional costs for a given timestamp."""
